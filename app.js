@@ -8,7 +8,7 @@ const app = {
 
         // Handle initial route or fallback
         const hash = window.location.hash.slice(1);
-        if (hash && this.views[hash]) {
+        if (hash) {
             this.navigate(hash);
         } else {
             this.navigate(db.getRole() === 'admin' ? 'dashboard' : 'scan');
@@ -17,8 +17,8 @@ const app = {
         // Listen to hash changes (back button support)
         window.addEventListener('hashchange', () => {
             const hash = window.location.hash.slice(1);
-            if (hash && this.views[hash] && hash !== this.currentView) {
-                this.render(hash);
+            if (hash && hash !== this.currentView) {
+                this.navigate(hash);
             }
         });
     },
@@ -27,32 +27,23 @@ const app = {
         document.getElementById('menu-toggle').addEventListener('click', () => {
             document.getElementById('sidebar').classList.toggle('open');
         });
-
-        document.getElementById('role-toggle').addEventListener('click', () => {
-            this.toggleRole();
-        });
     },
 
-    toggleRole() {
-        const roles = ['admin', 'customer', 'staff'];
-        const current = db.getRole();
-        const nextIdx = (roles.indexOf(current) + 1) % roles.length;
-        const newRole = roles[nextIdx];
-
-        db.setRole(newRole);
-        this.showToast(`Role switched to: ${newRole.toUpperCase()}`, 'success');
+    logoutAdmin() {
+        db.setAuthenticated(false);
+        db.setRole('customer');
+        this.showToast('Logged out successfully', 'success');
         this.renderRoleMenu();
-
-        // Redirect to default view for role
-        if (newRole === 'admin') this.navigate('dashboard');
-        else if (newRole === 'customer') this.navigate('scan');
-        else if (newRole === 'staff') this.navigate('verify');
+        this.navigate('scan');
     },
 
     renderRoleMenu() {
         const role = db.getRole();
         const navLinks = document.getElementById('nav-links');
         const cartIcon = document.getElementById('cart-icon-container');
+        const adminEntry = document.getElementById('admin-entry');
+        const authActions = document.getElementById('auth-actions');
+
         let linksHTML = '';
 
         // Role specific UI adjustments
@@ -63,6 +54,12 @@ const app = {
                 <li class="nav-item" onclick="app.navigate('admin-products')" data-view="admin-products"><i class="ph ph-packages"></i> Products</li>
                 <li class="nav-item" onclick="app.navigate('admin-transactions')" data-view="admin-transactions"><i class="ph ph-receipt"></i> Transactions</li>
             `;
+            adminEntry.innerHTML = '';
+            authActions.innerHTML = `
+                <button class="button secondary" onclick="app.logoutAdmin()" style="padding: 6px 12px; font-size: 0.85rem;">
+                    <i class="ph ph-sign-out"></i> Logout
+                </button>
+            `;
         } else if (role === 'customer') {
             cartIcon.classList.remove('hidden');
             this.updateCartBadge();
@@ -70,10 +67,22 @@ const app = {
                 <li class="nav-item" onclick="app.navigate('scan')" data-view="scan"><i class="ph ph-qr-code"></i> Scan & Shop</li>
                 <li class="nav-item" onclick="app.navigate('cart')" data-view="cart"><i class="ph ph-shopping-cart"></i> Cart</li>
             `;
+            adminEntry.innerHTML = `
+                <button class="button secondary" style="width: 100%; justify-content: start;" onclick="app.navigate('admin-login')">
+                    <i class="ph ph-lock-key"></i> Staff/Admin Login
+                </button>
+            `;
+            authActions.innerHTML = '';
         } else if (role === 'staff') {
             cartIcon.classList.add('hidden');
             linksHTML = `
                 <li class="nav-item" onclick="app.navigate('verify')" data-view="verify"><i class="ph ph-shield-check"></i> Verify Exit</li>
+            `;
+            adminEntry.innerHTML = '';
+            authActions.innerHTML = `
+                <button class="button secondary" onclick="app.logoutAdmin()" style="padding: 6px 12px; font-size: 0.85rem;">
+                    <i class="ph ph-sign-out"></i> Logout
+                </button>
             `;
         }
 
@@ -82,6 +91,16 @@ const app = {
     },
 
     navigate(viewName, params = {}) {
+        // Protect admin routes
+        const isAdminRoute = viewName.startsWith('admin-') && viewName !== 'admin-login' || viewName === 'dashboard';
+        const isStaffRoute = viewName === 'verify';
+
+        if ((isAdminRoute || isStaffRoute) && !db.isAuthenticated()) {
+            this.showToast('Please login to access this area', 'error');
+            window.location.hash = 'admin-login';
+            return;
+        }
+
         window.location.hash = viewName;
         this.render(viewName, params);
     },
@@ -136,12 +155,59 @@ const app = {
 
     // View Definitions
     views: {
+        'admin-login': {
+            title: 'Staff / Admin Login',
+            html: `
+                <div class="card" style="max-width: 400px; margin: 40px auto; text-align: center;">
+                    <div style="font-size: 3rem; color: var(--primary); margin-bottom: 16px;">
+                        <i class="ph-fill ph-lock-key"></i>
+                    </div>
+                    <h2 class="mb-4">Secure Access</h2>
+                    <form id="login-form">
+                        <div class="form-group" style="text-align: left;">
+                            <label>Username</label>
+                            <input type="text" id="login-user" required placeholder="admin or staff">
+                        </div>
+                        <div class="form-group" style="text-align: left;">
+                            <label>Password</label>
+                            <input type="password" id="login-pass" required placeholder="password123">
+                        </div>
+                        <button type="submit" class="button" style="width: 100%; margin-top: 16px;">Login</button>
+                    </form>
+                    <p class="mt-4 text-muted" style="font-size: 0.85rem;">Hint: use admin / password123 OR staff / password123</p>
+                </div>
+            `,
+            init: () => {
+                document.getElementById('login-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const u = document.getElementById('login-user').value.trim();
+                    const p = document.getElementById('login-pass').value;
+                    const creds = db.getAdminCredentials();
+
+                    if (u === creds.username && p === creds.password) {
+                        db.setAuthenticated(true);
+                        db.setRole('admin');
+                        app.showToast('Admin Login Successful', 'success');
+                        app.renderRoleMenu();
+                        app.navigate('dashboard');
+                    } else if (u === 'staff' && p === creds.password) {
+                        db.setAuthenticated(true);
+                        db.setRole('staff');
+                        app.showToast('Staff Login Successful', 'success');
+                        app.renderRoleMenu();
+                        app.navigate('verify');
+                    } else {
+                        app.showToast('Invalid credentials', 'error');
+                    }
+                });
+            }
+        },
         'dashboard': {
             title: 'Admin Dashboard',
             html: () => {
                 const products = db.getProducts().length;
                 const txns = db.getTransactions();
-                const totalSales = txns.reduce((sum, t) => sum + t.total, 0);
+                const totalSales = txns.filter(t => t.status === 'EXITED' || t.status === 'PAID').reduce((sum, t) => sum + t.total, 0);
 
                 return `
                     <div class="grid-3">
@@ -190,6 +256,30 @@ const app = {
                     <div id="product-list" class="mt-4"></div>
                 </div>
                 
+                <!-- Edit Product Modal -->
+                <div id="edit-modal" class="hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;">
+                    <div class="card" style="min-width: 350px; position: relative;">
+                        <button class="icon-btn" onclick="document.getElementById('edit-modal').classList.add('hidden')" style="position:absolute; top:12px; right:12px;"><i class="ph ph-x"></i></button>
+                        <h3 class="mb-4">Edit Product</h3>
+                        <form id="edit-product-form">
+                            <input type="hidden" id="edit-p-id">
+                            <div class="form-group">
+                                <label>Product Name</label>
+                                <input type="text" id="edit-p-name" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Price (₹)</label>
+                                <input type="number" id="edit-p-price" step="0.01" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Stock</label>
+                                <input type="number" id="edit-p-stock" required>
+                            </div>
+                            <button type="submit" class="button" style="width: 100%;"><i class="ph ph-floppy-disk"></i> Save Changes</button>
+                        </form>
+                    </div>
+                </div>
+
                 <!-- QR Code Modal -->
                 <div id="qr-modal" class="hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;">
                     <div class="card text-center" style="min-width: 300px; position: relative;">
@@ -220,6 +310,7 @@ const app = {
                                 <td>₹${p.price.toFixed(2)}</td>
                                 <td>${p.stock}</td>
                                 <td>
+                                    <button class="button secondary" onclick="app.views['admin-products'].showEdit('${p.id}')" style="padding: 6px 12px; font-size: 0.85rem;"><i class="ph ph-pencil-simple"></i> Edit</button>
                                     <button class="button secondary" onclick="app.views['admin-products'].showQR('${p.id}', '${p.name}')" style="padding: 6px 12px; font-size: 0.85rem;"><i class="ph ph-qr-code"></i> Print QR</button>
                                     <button class="button" onclick="app.views['admin-products'].deleteProduct('${p.id}')" style="background:var(--accent); padding: 6px 12px; font-size: 0.85rem;"><i class="ph ph-trash"></i></button>
                                 </td>
@@ -271,6 +362,31 @@ const app = {
 
                     modal.classList.remove('hidden');
                 };
+
+                app.views['admin-products'].showEdit = (id) => {
+                    const product = db.getProductById(id);
+                    if (!product) return;
+                    
+                    document.getElementById('edit-p-id').value = id;
+                    document.getElementById('edit-p-name').value = product.name;
+                    document.getElementById('edit-p-price').value = product.price;
+                    document.getElementById('edit-p-stock').value = product.stock;
+                    
+                    document.getElementById('edit-modal').classList.remove('hidden');
+                };
+
+                document.getElementById('edit-product-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const id = document.getElementById('edit-p-id').value;
+                    const name = document.getElementById('edit-p-name').value;
+                    const price = parseFloat(document.getElementById('edit-p-price').value);
+                    const stock = parseInt(document.getElementById('edit-p-stock').value);
+
+                    db.updateProduct(id, { name, price, stock });
+                    app.showToast('Product updated successfully!');
+                    document.getElementById('edit-modal').classList.add('hidden');
+                    renderProducts();
+                });
             }
         },
         'admin-transactions': {
@@ -509,26 +625,32 @@ const app = {
                 });
 
                 return `
-                    <div class="card text-center" style="max-width: 400px; margin: 0 auto;">
+                    <div class="card text-center" style="max-width: 450px; margin: 0 auto;">
                         <div style="color:var(--secondary); font-size: 3rem; margin-bottom:16px;"><i class="ph-fill ph-check-circle"></i></div>
                         <h2>Payment Successful</h2>
                         <p class="text-muted mb-4">Please show this QR code at the exit gate.</p>
                         
                         <div style="background: white; padding: 24px; border-radius: var(--radius-md); border:1px solid #eee; margin-bottom:24px;">
                             <div id="exit-qr" style="display:flex; justify-content:center; margin-bottom:16px;"></div>
-                            <p style="font-family:monospace; font-weight:bold; letter-spacing:1px; font-size:1.1rem;">${tx.id}</p>
+                            <p style="font-family:monospace; font-weight:bold; letter-spacing:1px; font-size:1.1rem; color:var(--text-main);">Order: ${tx.id}</p>
                         </div>
                         
-                        <div style="text-align:left; background: #F8FAFC; padding:16px; border-radius: var(--radius-sm);">
-                            <h4 class="mb-4">Receipt Details</h4>
-                            ${itemsHtml}
-                            <div style="display:flex; justify-content:space-between; font-weight:bold; margin-top:16px; font-size:1.1rem;">
+                        <div style="text-align:left; background: #F8FAFC; padding:20px; border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
+                            <h4 class="mb-4" style="border-bottom:1px solid var(--border-color); padding-bottom:8px;">Receipt Details</h4>
+                            <div style="margin-bottom: 12px; font-size: 0.9rem; color: var(--text-muted);">
+                                <div>Date: ${new Date(tx.timestamp).toLocaleString()}</div>
+                                <div>Status: <strong style="color:var(--secondary);">${tx.status}</strong></div>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                ${itemsHtml}
+                            </div>
+                            <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.2rem; border-top:1px solid var(--border-color); padding-top:12px;">
                                 <span>Paid via ${tx.paymentMethod}</span>
-                                <span>₹${tx.total.toFixed(2)}</span>
+                                <span style="color: var(--primary);">₹${tx.total.toFixed(2)}</span>
                             </div>
                         </div>
                         
-                        <button class="button mt-4" style="width:100%;" onclick="app.navigate('scan')">Start New Shopping Trip</button>
+                        <button class="button mt-4" style="width:100%; padding: 16px; font-size: 1.1rem;" onclick="app.navigate('scan')"><i class="ph ph-shopping-cart"></i> Start New Shopping Trip</button>
                     </div>
                 `;
             },
