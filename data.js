@@ -9,7 +9,9 @@ const initData = {
     ],
     cart: [], // Customer cart state
     transactions: [], // Completed orders
-    currentRole: 'admin' // Roles: 'admin', 'customer', 'staff'
+    currentRole: 'customer', // Roles: 'admin', 'customer', 'staff'
+    adminAuth: { username: 'admin', password: 'password123' }, // Default hardcoded admin creds
+    isAuthenticated: false
 };
 
 // Data service
@@ -40,6 +42,16 @@ const db = {
         const data = this.load();
         data.products = data.products.filter(p => p.id !== id);
         this.save(data);
+    },
+    updateProduct(id, updatedData) {
+        const data = this.load();
+        const index = data.products.findIndex(p => p.id === id);
+        if (index !== -1) {
+            data.products[index] = { ...data.products[index], ...updatedData };
+            this.save(data);
+            return true;
+        }
+        return false;
     },
 
     // Cart operations
@@ -118,6 +130,19 @@ const db = {
             return true;
         }
         return false;
+    },
+
+    // Auth management
+    getAdminCredentials() {
+        return this.load().adminAuth;
+    },
+    setAuthenticated(status) {
+        const data = this.load();
+        data.isAuthenticated = status;
+        this.save(data);
+    },
+    isAuthenticated() {
+        return this.load().isAuthenticated;
     },
 
     // Role management
