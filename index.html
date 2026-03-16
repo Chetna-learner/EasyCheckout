@@ -27,6 +27,9 @@
             <ul id="nav-links" class="nav-links">
                 <!-- Injected via JS -->
             </ul>
+            <div id="admin-entry" style="margin-top: auto; padding: 16px;">
+                <!-- Inject Admin portal link or logout logic here dynamically via JS -->
+            </div>
         </nav>
 
         <!-- Main Content Area -->
@@ -39,9 +42,8 @@
                     <h1 id="page-title">Dashboard</h1>
                 </div>
                 <div class="topbar-actions">
-                    <button class="icon-btn toggle-role" id="role-toggle" title="Switch User Role">
-                        <i class="ph ph-users"></i>
-                    </button>
+                    <!-- The role toggle was removed correctly; Logout will be injected via JS -->
+                    <div id="auth-actions"></div>
                     <div id="cart-icon-container" class="cart-icon hidden">
                         <button class="icon-btn" onclick="app.navigate('cart')">
                             <i class="ph ph-shopping-bag"></i>
