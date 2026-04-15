@@ -598,12 +598,39 @@ const app = {
 
                 app.views['checkout'].pay = () => {
                     const method = document.querySelector('input[name="payment"]:checked').value;
-                    const txn = db.createTransaction(method);
-                    if (txn) {
-                        app.updateCartBadge();
-                        app.showToast('Payment Successful!', 'success');
-                        app.navigate('receipt', { txn });
-                    }
+                    const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+                    // Razorpay Options
+                    const options = {
+                        "key": "rzp_test_dummykey", // Enter the Key ID generated from the Dashboard
+                        "amount": total * 100, // Amount is in currency subunits. Default currency is INR. Hence, 50000 refers to 50000 paise
+                        "currency": "INR",
+                        "name": "EasyCheckout",
+                        "description": "Purchase from EasyCheckout",
+                        "handler": function (response) {
+                            // On successful payment
+                            const txn = db.createTransaction(method);
+                            if (txn) {
+                                app.updateCartBadge();
+                                app.showToast('Payment Successful! ID: ' + response.razorpay_payment_id, 'success');
+                                app.navigate('receipt', { txn });
+                            }
+                        },
+                        "prefill": {
+                            "name": "Customer Name",
+                            "email": "customer@example.com",
+                            "contact": "9999999999"
+                        },
+                        "theme": {
+                            "color": "#4F46E5"
+                        }
+                    };
+
+                    const rzp = new Razorpay(options);
+                    rzp.on('payment.failed', function (response) {
+                        app.showToast('Payment failed: ' + response.error.description, 'error');
+                    });
+                    rzp.open();
                 };
             }
         },
